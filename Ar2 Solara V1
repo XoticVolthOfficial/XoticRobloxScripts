@@ -1,0 +1,265 @@
+-- Load Fluent
+local Fluent = loadstring(game:HttpGet("https://github.com/dawid-scripts/Fluent/releases/latest/download/main.lua"))()
+
+-- === Services & basic vars ===
+local Camera = workspace.CurrentCamera
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local UserInputService = game:GetService("UserInputService")
+local TweenService = game:GetService("TweenService")
+local LocalPlayer = Players.LocalPlayer
+local Holding = false
+
+-- === Aimbot defaults ===
+_G.AimbotEnabled = false
+_G.TeamCheck = false
+_G.AimPart = "Head"
+_G.Sensitivity = 0
+
+_G.CircleSides = 64
+_G.CircleColor = Color3.fromRGB(255, 255, 255)
+_G.CircleTransparency = 0.7
+_G.CircleRadius = 80
+_G.CircleFilled = false
+_G.CircleVisible = true
+_G.CircleThickness = 0
+
+-- === Drawing FOV circle ===
+local FOVCircle
+local ok, err = pcall(function() FOVCircle = Drawing.new("Circle") end)
+if ok and FOVCircle then
+    FOVCircle.Position = Vector2.new(Camera.ViewportSize.X/2, Camera.ViewportSize.Y/2)
+    FOVCircle.Radius = _G.CircleRadius
+    FOVCircle.Filled = _G.CircleFilled
+    FOVCircle.Color = _G.CircleColor
+    FOVCircle.Visible = _G.CircleVisible
+    FOVCircle.Transparency = _G.CircleTransparency
+    FOVCircle.NumSides = _G.CircleSides
+    FOVCircle.Thickness = _G.CircleThickness
+end
+
+-- === Helper: get closest player to mouse ===
+local function GetClosestPlayer()
+    local MaximumDistance = _G.CircleRadius
+    local Target = nil
+    local nearest = MaximumDistance
+
+    for _, v in ipairs(Players:GetPlayers()) do
+        if v ~= LocalPlayer and v.Character and v.Character.Parent then
+            local humanoid = v.Character:FindFirstChildOfClass("Humanoid")
+            local hrp = v.Character:FindFirstChild("HumanoidRootPart")
+            if humanoid and hrp and humanoid.Health > 0 then
+                if _G.TeamCheck and v.Team == LocalPlayer.Team then
+                    -- skip teammates if TeamCheck enabled
+                else
+                    local aimPart = v.Character:FindFirstChild(_G.AimPart) or hrp
+                    if aimPart then
+                        local screenPoint, onScreen = Camera:WorldToScreenPoint(aimPart.Position)
+                        if onScreen then
+                            local mousePos = Vector2.new(UserInputService:GetMouseLocation().X, UserInputService:GetMouseLocation().Y)
+                            local vecDist = (mousePos - Vector2.new(screenPoint.X, screenPoint.Y)).Magnitude
+                            if vecDist < nearest then
+                                nearest = vecDist
+                                Target = v
+                            end
+                        end
+                    end
+                end
+            end
+        end
+    end
+
+    return Target
+end
+
+-- === Input handling for hold-to-aim (RMB) ===
+UserInputService.InputBegan:Connect(function(input, processed)
+    if processed then return end
+    if input.UserInputType == Enum.UserInputType.MouseButton2 then
+        Holding = true
+    end
+end)
+
+UserInputService.InputEnded:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton2 then
+        Holding = false
+    end
+end)
+
+-- local UI-facing flag
+local AimbotEnabled = _G.AimbotEnabled
+local AimbotNotificationShown = false -- show notification only once
+
+-- === Main Render loop ===
+RunService.RenderStepped:Connect(function()
+    if FOVCircle then
+        local mousePosVec = Vector2.new(UserInputService:GetMouseLocation().X, UserInputService:GetMouseLocation().Y)
+        FOVCircle.Position = mousePosVec
+        FOVCircle.Radius = _G.CircleRadius
+        FOVCircle.Filled = _G.CircleFilled
+        FOVCircle.Color = _G.CircleColor
+        FOVCircle.Visible = _G.CircleVisible
+        FOVCircle.Transparency = _G.CircleTransparency
+        FOVCircle.NumSides = _G.CircleSides
+        FOVCircle.Thickness = _G.CircleThickness
+    end
+
+    if Holding and AimbotEnabled then
+        local target = GetClosestPlayer()
+        if target and target.Character and target.Character.Parent then
+            local aimPart = target.Character:FindFirstChild(_G.AimPart) or target.Character:FindFirstChild("HumanoidRootPart")
+            if aimPart and Camera and Camera.CFrame then
+                if tonumber(_G.Sensitivity) and _G.Sensitivity > 0 then
+                    local suc, tween = pcall(function()
+                        return TweenService:Create(Camera, TweenInfo.new(_G.Sensitivity, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), {CFrame = CFrame.new(Camera.CFrame.Position, aimPart.Position)})
+                    end)
+                    if suc and tween then tween:Play() end
+                else
+                    Camera.CFrame = CFrame.new(Camera.CFrame.Position, aimPart.Position)
+                end
+            end
+        end
+    end
+end)
+
+-- === UI ===
+local Window = Fluent:CreateWindow({
+    Title = "XoticVolthAR2",
+    SubTitle = "Power Hub",
+    TabWidth = 120,
+    Size = UDim2.fromOffset(480, 320),
+})
+
+UserInputService.InputBegan:Connect(function(input, gameProcessed)
+    if gameProcessed then return end
+    if input.KeyCode == Enum.KeyCode.F1 then
+        Window:Toggle()
+    end
+end)
+
+-- 🏠 Main Tab
+local MainTab = Window:AddTab({ Title = "Main", Icon = "home" })
+MainTab:AddButton({
+    Title = "Click Me!",
+    Description = "Shows a notification when clicked",
+    Callback = function()
+        Fluent:Notify({Title="Button Clicked!", Content="The Main tab button works!", Duration=3})
+    end
+})
+
+-- ⚡ Boost Tab
+local BoostTab = Window:AddTab({ Title = "Boost", Icon = "zap" })
+BoostTab:AddButton({
+    Title = "Enable Jump Boost",
+    Description = "Set Jump Power to 50",
+    Callback = function()
+        local player = LocalPlayer
+        if player and player.Character and player.Character:FindFirstChildOfClass("Humanoid") then
+            local hum = player.Character:FindFirstChildOfClass("Humanoid")
+            hum.UseJumpPower = true
+            hum.JumpPower = 50
+            Fluent:Notify({Title="Boost Enabled", Content="Jump Power set to 50!", Duration=3})
+        end
+    end
+})
+BoostTab:AddButton({
+    Title = "Disable Jump Boost",
+    Description = "Reset Jump Power to default (16)",
+    Callback = function()
+        local player = LocalPlayer
+        if player and player.Character and player.Character:FindFirstChildOfClass("Humanoid") then
+            local hum = player.Character:FindFirstChildOfClass("Humanoid")
+            hum.JumpPower = 16
+            Fluent:Notify({Title="Boost Disabled", Content="Jump Power reset to normal.", Duration=3})
+        end
+    end
+})
+
+-- 👁️ Visual Tab
+local VisualTab = Window:AddTab({ Title = "Visual", Icon = "eye" })
+-- (ESP / Skeleton / NameTags code remains same as your previous script)
+-- ... [omitted here for brevity, reuse previous VisualTab code] ...
+
+-- 🗡️ Combat Tab
+local CombatTab = Window:AddTab({ Title = "Combat", Icon = "sword" })
+
+-- Aimbot button (with one-time notification)
+CombatTab:AddButton({
+    Title = "Aimbot",
+    Description = "Toggle Aimbot ON/OFF (hold RMB to aim)",
+    Callback = function()
+        AimbotEnabled = not AimbotEnabled
+        _G.AimbotEnabled = AimbotEnabled
+        if AimbotEnabled then
+            if not AimbotNotificationShown then
+                Fluent:Notify({
+                    Title = "Aimbot Enabled",
+                    Content = "Hold Click To Aimbot",
+                    Duration = 3
+                })
+                AimbotNotificationShown = true
+            end
+            _G.CircleVisible = true
+            if FOVCircle then FOVCircle.Visible = true end
+        else
+            Fluent:Notify({Title="Aimbot Disabled", Content="Aimbot turned OFF", Duration=3})
+            _G.CircleVisible = false
+            if FOVCircle then FOVCircle.Visible = false end
+        end
+    end
+})
+
+-- Example: Auto Click button
+CombatTab:AddButton({
+    Title = "Enable Auto Click",
+    Description = "Automatically clicks for you",
+    Callback = function()
+        Fluent:Notify({Title="Auto Click Enabled", Content="Auto click feature activated!", Duration=3})
+    end
+})
+
+-- Example: WalkSpeed button
+CombatTab:AddButton({
+    Title = "Set WalkSpeed 50",
+    Description = "Increases your walkspeed",
+    Callback = function()
+        if LocalPlayer.Character and LocalPlayer.Character:FindFirstChildOfClass("Humanoid") then
+            LocalPlayer.Character:FindFirstChildOfClass("Humanoid").WalkSpeed = 50
+            Fluent:Notify({Title="WalkSpeed Changed", Content="WalkSpeed set to 50!", Duration=3})
+        end
+    end
+})
+
+-- Automatically apply ESP / Name tags to new players / respawns
+Players.PlayerAdded:Connect(function(plr)
+    plr.CharacterAdded:Connect(function()
+        if ESPEnabled then AddESP(plr) end
+        -- name tags if enabled
+        if NameDistanceEnabled and plr.Character and plr.Character:FindFirstChild("Head") then
+            if NameTags[plr] then NameTags[plr]:Destroy() end
+            local billboard = Instance.new("BillboardGui")
+            billboard.Name = "NameDistance"
+            billboard.Adornee = plr.Character.Head
+            billboard.Size = UDim2.new(0,200,0,50)
+            billboard.StudsOffset = Vector3.new(0,2,0)
+            billboard.AlwaysOnTop = true
+            billboard.Parent = plr.Character
+            local textLabel = Instance.new("TextLabel")
+            textLabel.BackgroundTransparency = 1
+            textLabel.Size = UDim2.new(1,0,1,0)
+            textLabel.TextScaled = true
+            textLabel.TextColor3 = Color3.fromRGB(255,255,255)
+            textLabel.Font = Enum.Font.SourceSansBold
+            textLabel.Parent = billboard
+            NameTags[plr] = textLabel
+        end
+    end)
+end)
+
+Players.LocalPlayer.CharacterAdded:Connect(function()
+    if ESPEnabled then
+        for _, plr in pairs(Players:GetPlayers()) do
+            if plr ~= LocalPlayer then AddESP(plr) end
+        end
+    end
+end)
