@@ -1,0 +1,315 @@
+-- Load Fluent
+local Fluent = loadstring(game:HttpGet("https://github.com/dawid-scripts/Fluent/releases/latest/download/main.lua"))()
+
+-- Services
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local UserInputService = game:GetService("UserInputService")
+local LocalPlayer = Players.LocalPlayer
+local TweenService = game:GetService("TweenService")
+local Camera = workspace.CurrentCamera
+
+-- Settings
+local Settings = {
+    NameEnabled = false,
+    NameColor = Color3.fromRGB(255, 255, 255),
+    DistanceEnabled = false,
+    DistanceColor = Color3.fromRGB(255, 255, 255),
+    BoxEnabled = true,
+    BoxColor = Color3.fromRGB(255, 0, 0),
+    OutlineColor = Color3.fromRGB(0, 0, 0),
+    MaxDistance = 3000
+}
+
+local highlights = {}
+local HighlightsEnabled = false
+local HighlightColor = Color3.fromRGB(255, 255, 0)
+
+-- Create Window
+local Window = Fluent:CreateWindow({
+    Title = "XoticVolthAR2",
+    SubTitle = "Power Hub",
+    TabWidth = 120,
+    Size = UDim2.fromOffset(480, 320),
+})
+
+-- Toggle UI with F1
+UserInputService.InputBegan:Connect(function(input, gameProcessed)
+    if gameProcessed then return end
+    if input.KeyCode == Enum.KeyCode.F1 then
+        Window:Toggle()
+    end
+end)
+
+-- 🏠 Main Tab
+local MainTab = Window:AddTab({ Title = "Main", Icon = "home" })
+MainTab:AddButton({
+    Title = "Click Me!",
+    Description = "Shows a notification when clicked",
+    Callback = function()
+        Fluent:Notify({
+            Title = "Button Clicked!",
+            Content = "The Main tab button works!",
+            Duration = 3
+        })
+    end
+})
+
+-- ⚡ Boost Tab
+local BoostTab = Window:AddTab({ Title = "Boost", Icon = "zap" })
+BoostTab:AddButton({
+    Title = "Enable Jump Boost",
+    Description = "Set Jump Power to 50",
+    Callback = function()
+        local player = LocalPlayer
+        if player.Character and player.Character:FindFirstChildOfClass("Humanoid") then
+            local hum = player.Character:FindFirstChildOfClass("Humanoid")
+            hum.UseJumpPower = true
+            hum.JumpPower = 50
+            Fluent:Notify({
+                Title = "Boost Enabled",
+                Content = "Jump Power set to 50!",
+                Duration = 3
+            })
+        end
+    end
+})
+BoostTab:AddButton({
+    Title = "Disable Jump Boost",
+    Description = "Reset Jump Power to default (16)",
+    Callback = function()
+        local player = LocalPlayer
+        if player.Character and player.Character:FindFirstChildOfClass("Humanoid") then
+            local hum = player.Character:FindFirstChildOfClass("Humanoid")
+            hum.JumpPower = 16
+            Fluent:Notify({
+                Title = "Boost Disabled",
+                Content = "Jump Power reset to normal.",
+                Duration = 3
+            })
+        end
+    end
+})
+
+-- 👁️ Visual Tab
+local VisualTab = Window:AddTab({ Title = "Visual", Icon = "eye" })
+
+-- Name Toggle + Color
+VisualTab:AddToggle({
+    Title = "Name Player",
+    Default = Settings.NameEnabled,
+    Callback = function(val) Settings.NameEnabled = val end
+}):AddColorPicker({
+    Default = Settings.NameColor,
+    Callback = function(col) Settings.NameColor = col end
+})
+
+-- Distance Toggle + Color
+VisualTab:AddToggle({
+    Title = "Distance",
+    Default = Settings.DistanceEnabled,
+    Callback = function(val) Settings.DistanceEnabled = val end
+}):AddColorPicker({
+    Default = Settings.DistanceColor,
+    Callback = function(col) Settings.DistanceColor = col end
+})
+
+-- Chams / Highlight Toggle + Color
+VisualTab:AddToggle({
+    Title = "Chams",
+    Default = false,
+    Callback = function(val)
+        HighlightsEnabled = val
+        for _, player in pairs(Players:GetPlayers()) do
+            if player ~= LocalPlayer and player.Character then
+                if val then
+                    addHighlightToCharacter(player.Character, player)
+                else
+                    removeHighlight(player)
+                end
+            end
+        end
+    end
+}):AddColorPicker({
+    Default = HighlightColor,
+    Callback = function(color)
+        HighlightColor = color
+        for _, highlight in pairs(highlights) do
+            highlight.FillColor = HighlightColor
+            highlight.OutlineColor = HighlightColor
+        end
+    end
+})
+
+-- Max Distance Slider
+VisualTab:AddSlider({
+    Title = "Max Distance",
+    Min = 1000,
+    Max = 10000,
+    Default = Settings.MaxDistance,
+    Callback = function(value) Settings.MaxDistance = value end
+})
+
+-- Map ESP Button
+VisualTab:AddButton({
+    Title = "Map ESP",
+    Callback = function()
+        local interfaceMap = require(game:GetService("ReplicatedFirst").Framework).Interface.Map
+        interfaceMap:EnableGodview()
+    end
+})
+
+-- Box ESP Drawing
+local cornerDrawings = {}
+local outlineDrawings = {}
+
+local function createBoxESP(player)
+    if cornerDrawings[player] or outlineDrawings[player] then return end
+    local corners, outlines = {}, {}
+    for i = 1, 8 do
+        local c = Drawing.new("Line")
+        c.Thickness, c.ZIndex, c.Visible = 1, 2, false
+        table.insert(corners, c)
+        local o = Drawing.new("Line")
+        o.Thickness, o.ZIndex, o.Visible = 3, 1, false
+        table.insert(outlines, o)
+    end
+    cornerDrawings[player] = corners
+    outlineDrawings[player] = outlines
+
+    RunService.RenderStepped:Connect(function()
+        local char = player.Character
+        if not char then
+            for i = 1, 8 do corners[i].Visible = false; outlines[i].Visible = false end
+            return
+        end
+        local hrp = char:FindFirstChild("HumanoidRootPart")
+        local hum = char:FindFirstChild("Humanoid")
+        if hrp and hum then
+            local camera = workspace.CurrentCamera
+            local charPos = hrp.Position
+            local cameraPos = camera.CFrame.Position
+            local distance = (cameraPos - charPos).Magnitude
+            local pos, onScreen = camera:WorldToViewportPoint(charPos)
+
+            if Settings.BoxEnabled and hum.Health > 0 and onScreen and distance <= Settings.MaxDistance then
+                local scale = 1 / (pos.Z * math.tan(math.rad(camera.FieldOfView / 2)) * 2) * 100
+                local w, h = 40 * scale, 60 * scale
+                local x, y = pos.X - w/2, pos.Y - h/2
+                local lw, lh = w*0.3, h*0.3
+
+                corners[1].From = Vector2.new(x, y); corners[1].To = Vector2.new(x+lw, y)
+                corners[2].From = Vector2.new(x, y); corners[2].To = Vector2.new(x, y+lh)
+                corners[3].From = Vector2.new(x+w, y); corners[3].To = Vector2.new(x+w-lw, y)
+                corners[4].From = Vector2.new(x+w, y); corners[4].To = Vector2.new(x+w, y+lh)
+                corners[5].From = Vector2.new(x, y+h); corners[5].To = Vector2.new(x+lw, y+h)
+                corners[6].From = Vector2.new(x, y+h); corners[6].To = Vector2.new(x, y+h-lh)
+                corners[7].From = Vector2.new(x+w, y+h); corners[7].To = Vector2.new(x+w-lw, y+h)
+                corners[8].From = Vector2.new(x+w, y+h); corners[8].To = Vector2.new(x+w, y+h-lh)
+
+                for i = 1, 8 do
+                    corners[i].Color = Settings.BoxColor; corners[i].Visible = true
+                    outlines[i].From = corners[i].From; outlines[i].To = corners[i].To
+                    outlines[i].Color = Settings.OutlineColor; outlines[i].Visible = true
+                end
+            else
+                for i = 1, 8 do corners[i].Visible=false; outlines[i].Visible=false end
+            end
+        else
+            for i = 1, 8 do corners[i].Visible=false; outlines[i].Visible=false end
+        end
+    end)
+end
+
+-- Add Box ESP to new players
+Players.PlayerAdded:Connect(function(plr)
+    plr.CharacterAdded:Connect(function()
+        createBoxESP(plr)
+    end)
+end)
+
+for _, plr in pairs(Players:GetPlayers()) do
+    if plr.Character then
+        createBoxESP(plr)
+    end
+end
+
+-- 🗡️ Combat Tab
+local CombatTab = Window:AddTab({ Title = "Combat", Icon = "sword" })
+
+-- Aimbot
+local Holding = false
+_G.AimbotEnabled = false
+_G.TeamCheck = false
+_G.AimPart = "Head"
+_G.Sensitivity = 0.1
+local FOVCircle = Drawing.new("Circle")
+FOVCircle.Position = Vector2.new(Camera.ViewportSize.X/2, Camera.ViewportSize.Y/2)
+FOVCircle.Radius = 80
+FOVCircle.Color = Color3.fromRGB(255,255,255)
+FOVCircle.Visible = true
+FOVCircle.Filled = false
+FOVCircle.NumSides = 64
+FOVCircle.Transparency = 0.7
+FOVCircle.Thickness = 1
+
+local function GetClosestPlayer()
+    local maxDist = FOVCircle.Radius
+    local target = nil
+    for _, plr in pairs(Players:GetPlayers()) do
+        if plr ~= LocalPlayer and plr.Character and plr.Character:FindFirstChild(_G.AimPart) then
+            local screenPos = Camera:WorldToScreenPoint(plr.Character[_G.AimPart].Position)
+            local dist = (Vector2.new(UserInputService:GetMouseLocation().X, UserInputService:GetMouseLocation().Y) - Vector2.new(screenPos.X, screenPos.Y)).Magnitude
+            if dist < maxDist then
+                target = plr
+            end
+        end
+    end
+    return target
+end
+
+UserInputService.InputBegan:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton2 then Holding = true end
+end)
+UserInputService.InputEnded:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton2 then Holding = false end
+end)
+
+RunService.RenderStepped:Connect(function()
+    FOVCircle.Position = Vector2.new(UserInputService:GetMouseLocation().X, UserInputService:GetMouseLocation().Y)
+    if Holding and _G.AimbotEnabled then
+        local target = GetClosestPlayer()
+        if target and target.Character then
+            TweenService:Create(Camera, TweenInfo.new(_G.Sensitivity, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), {CFrame = CFrame.new(Camera.CFrame.Position, target.Character[_G.AimPart].Position)}):Play()
+        end
+    end
+end)
+
+CombatTab:AddButton({
+    Title = "Aimbot",
+    Description = "Hold Right Click to Aimbot",
+    Callback = function()
+        _G.AimbotEnabled = not _G.AimbotEnabled
+        Fluent:Notify({
+            Title = "Aimbot",
+            Content = "Hold Click To Aimbot",
+            Duration = 3
+        })
+    end
+})
+
+-- WalkSpeed example
+CombatTab:AddButton({
+    Title = "Set WalkSpeed 50",
+    Description = "Increases your walkspeed",
+    Callback = function()
+        if LocalPlayer.Character and LocalPlayer.Character:FindFirstChildOfClass("Humanoid") then
+            LocalPlayer.Character:FindFirstChildOfClass("Humanoid").WalkSpeed = 50
+            Fluent:Notify({
+                Title = "WalkSpeed Changed",
+                Content = "WalkSpeed set to 50!",
+                Duration = 3
+            })
+        end
+    end
+})
